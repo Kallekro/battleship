@@ -360,6 +360,8 @@ class GameState(Enum):
     SETUP = auto()
     READY = auto()
     PLAYING = auto()
+    PLAYER_WON = auto()
+    OPPONENT_WON = auto()
 
 
 class Manager:
@@ -386,6 +388,8 @@ class Manager:
         self.game_state = GameState.SETUP
         self.guesses: List[Tuple[Tuple[int, int], Hit]] = []
         self.fleet = Fleet()
+        self.player_ships_left = len(ShipType)
+        self.opponent_ships_left = len(ShipType)
 
     def __set_bounds(self):
         self.scrheight, self.scrwidth = self.stdscr.getmaxyx()
@@ -458,6 +462,8 @@ class Manager:
                     self.__take_turn()
                 else:
                     self.__opponents_turn()
+            elif self.game_state in [GameState.PLAYER_WON, GameState.OPPONENT_WON]:
+                self.__game_over()
 
     def __ready(self):
         self.stdscr.refresh()
@@ -519,6 +525,9 @@ class Manager:
         self.stdscr.addstr(hit.target_position[0], hit.target_position[1], char)
         self.player.players_turn = True
 
+        if hit.hit_type == HitType.SUNK:
+            self.__check_game_over()
+
     def __fire_missile(self, target_pos: Tuple[int, int]):
         # Offset the position to the players side
         offset = self.opponent_board_center[1] - target_pos[1]
@@ -531,6 +540,8 @@ class Manager:
         if hit.hit_type == HitType.SUNK:
             # Sunk opponent ship
             self.__reveal_sunk_ship(hit)
+            self.opponent_ships_left -= 1
+            self.__check_game_over()
 
     def __get_previous_guess_result(self, target: Tuple[int, int]):
         for (pos, hit) in self.guesses:
@@ -551,13 +562,16 @@ class Manager:
                     )
                     break
 
+    def __check_game_over(self):
+        if self.opponent_ships_left == 0:
+            self.game_state = GameState.PLAYER_WON
+        elif self.player_ships_left == 0:
+            self.game_state = GameState.OPPONENT_WON
+
     def __place_ships(self):
         Information.placing_ships(self)
-        self.__place_ship_loop(ShipType.PatrolBoat)
-        self.__place_ship_loop(ShipType.Submarine)
-        self.__place_ship_loop(ShipType.Destroyer)
-        self.__place_ship_loop(ShipType.Battleship)
-        self.__place_ship_loop(ShipType.Carrier)
+        for ship_type in ShipType:
+            self.__place_ship_loop(ship_type)
         Information.placing_ships(self, clear=True)
         self.game_state = GameState.READY
 
@@ -615,6 +629,9 @@ class Manager:
         for y, x in positions:
             self.stdscr.addstr(y, x, " ")
 
+    def __game_over(self):
+        Information.game_over(self)
+        self.stdscr.getch()
 
 class TextAlignment(Enum):
     CENTER = auto()
@@ -668,6 +685,11 @@ class Information:
                 text = "YOUR TURN"
             else:
                 text = "OPPONENTS TURN"
+        elif manager.game_state == GameState.PLAYER_WON:
+            text = "YOU WON!"
+        elif manager.game_state == GameState.OPPONENT_WON:
+            text = "YOU LOST."
+
         Information.__clear_status(manager)
         Information.__update_info(
             manager.stdscr,
@@ -717,6 +739,10 @@ class Information:
             "Fire: Space",
             clear,
         )
+
+    @staticmethod
+    def game_over(manager: Manager, clear=False):
+        Information.status(manager)
 
     @staticmethod
     def disambiguation(manager: Manager, clear=False):
